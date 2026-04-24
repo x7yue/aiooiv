@@ -1,6 +1,16 @@
 # aiooiv
 
-aiooiv 是一个基于 [Tauri 2](https://tauri.app/) + [React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Vite](https://vite.dev/) 的桌面应用。
+aiooiv 是一个本地优先的 AI 图像生成与编辑桌面工作台。它通过 OpenAI 兼容接口创建文生图和图生图任务，在本机保存任务历史、生成结果和配置，适合把多次图像实验组织成可搜索、可重试、可追踪的工作流。
+
+## 功能概览
+
+- 文生图与图生图：支持通过提示词生成图片，也支持上传源图后进行编辑。
+- 任务队列：任务会经历 pending、running、completed、failed 等状态，便于追踪批量生成进度。
+- 参数控制：可配置图片尺寸、质量和生成数量。
+- 历史管理：支持搜索任务、按状态过滤，并在列表视图和画廊视图之间切换。
+- 失败恢复：失败任务会展示错误信息，并支持重试或删除。
+- 本地持久化：任务元数据写入 SQLite，生成图片保存到应用数据目录。
+- API 设置：可配置 OpenAI API Base URL 和 API Key，方便接入不同兼容服务。
 
 ## 技术栈
 
@@ -65,82 +75,4 @@ bun run tauri build
 src-tauri/target/release/bundle/
 ```
 
-Windows 打包 MSI 时需要 WiX Toolset；GitHub Actions 中会自动安装，本地如遇到 WiX 相关错误，请先安装 WiX。
-
-## CI
-
-仓库包含日常构建验证工作流：
-
-```txt
-.github/workflows/desktop-ci.yml
-```
-
-触发方式：
-
-- push 到 `main` / `master`
-- pull request
-- 手动 `workflow_dispatch`
-
-CI 会在以下平台执行编译和打包验证：
-
-- `windows-latest`
-- `macos-latest`
-
-CI 上传的是短期构建 artifact，主要用于开发检查，不作为正式发布产物。
-
-## Release 发布流程
-
-正式发布由独立工作流负责：
-
-```txt
-.github/workflows/release.yml
-```
-
-Release workflow 使用官方 `tauri-apps/tauri-action@v0`：
-
-- 根据 tag 创建 GitHub Draft Release
-- 构建 Windows x64 安装包
-- 构建 macOS Apple Silicon 安装包
-- 构建 macOS Intel 安装包
-- 自动上传 Tauri bundle 产物到 Draft Release
-
-### 发布新版本
-
-1. 确认版本号一致：
-
-   ```txt
-   package.json
-   src-tauri/tauri.conf.json
-   ```
-
-2. 从目标提交创建 semver tag：
-
-   ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-
-3. 等待 GitHub Actions 中的 `Release` workflow 完成。
-
-4. 在 GitHub Releases 页面检查 Draft Release 的产物。
-
-5. 确认无误后手动发布 Release。
-
-### 手动重跑某个 tag 的发布
-
-也可以在 GitHub Actions 页面手动运行 `Release` workflow，并输入已有 tag，例如：
-
-```txt
-v0.1.0
-```
-
-## 签名与公证
-
-当前 release workflow 支持生成未签名安装包。正式面向用户分发前，建议补充：
-
-- Windows 代码签名证书
-- macOS Developer ID 签名
-- macOS notarization 公证
-- 如需自动更新，再配置 Tauri updater 签名和更新清单
-
-未签名包可以用于内部测试，但用户安装时可能看到系统安全警告。
+Windows 打包 MSI 时需要 WiX Toolset；本地如遇到 WiX 相关错误，请先安装 WiX。
