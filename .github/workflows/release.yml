@@ -28,11 +28,11 @@ jobs:
             os: windows-latest
             args: ""
           - label: macos-arm64
-            os: macos-latest
+            os: macos-15
             args: "--target aarch64-apple-darwin"
             rust-targets: "aarch64-apple-darwin"
           - label: macos-x64
-            os: macos-13
+            os: macos-15-intel
             args: "--target x86_64-apple-darwin"
             rust-targets: "x86_64-apple-darwin"
 
