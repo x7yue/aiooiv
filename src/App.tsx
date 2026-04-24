@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useSettingsStore } from './stores/settings';
 import { useTasksStore } from './stores/tasks';
+import { AiooivLogo } from './components/AiooivLogo';
 import { SettingsDialog } from './components/SettingsDialog';
 import { TaskForm } from './components/TaskForm';
 import { TaskList } from './components/TaskList';
@@ -54,7 +55,7 @@ function App() {
       <header className="app-topbar" data-tauri-drag-region>
         <div className="topbar-brand" data-tauri-drag-region>
           <div className="logo-mark" data-tauri-drag-region>
-            <LogoIcon />
+            <AiooivLogo size={28} />
           </div>
           <div className="topbar-brand-copy" data-tauri-drag-region>
             <span className="topbar-title" data-tauri-drag-region>aiooiv</span>
@@ -170,22 +171,6 @@ function CreationPanel() {
 }
 
 // ── Icons ──────────────────────────────────────────
-
-function LogoIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <defs>
-        <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="var(--c-accent)" />
-          <stop offset="100%" stopColor="var(--c-accent-2)" />
-        </linearGradient>
-      </defs>
-      <path d="M12 2L2 7l10 5 10-5-10-5z" fill="url(#logo-grad)" opacity="0.9" />
-      <path d="M2 17l10 5 10-5" stroke="url(#logo-grad)" strokeWidth="2" fill="none" />
-      <path d="M2 12l10 5 10-5" stroke="url(#logo-grad)" strokeWidth="2" fill="none" />
-    </svg>
-  );
-}
 
 function GearIcon() {
   return (

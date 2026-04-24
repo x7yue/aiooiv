@@ -337,14 +337,22 @@ body {
 }
 
 .logo-mark {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--r-md);
-  background: linear-gradient(135deg, rgba(45, 212, 168, 0.12), rgba(245, 185, 66, 0.08));
-  border: 1px solid rgba(45, 212, 168, 0.15);
+  border-radius: 13px;
+  background:
+    radial-gradient(circle at 30% 18%, rgba(45, 212, 168, 0.18), transparent 42%),
+    linear-gradient(135deg, rgba(45, 212, 168, 0.12), rgba(201, 168, 76, 0.1));
+  border: 1px solid rgba(45, 212, 168, 0.2);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.025), 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.logo-mark svg {
+  display: block;
+  filter: drop-shadow(0 0 10px rgba(45, 212, 168, 0.2));
 }
 
 .sidebar-toggle {
