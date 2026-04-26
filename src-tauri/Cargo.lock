@@ -30,7 +30,7 @@ dependencies = [
 
 [[package]]
 name = "aiooiv"
-version = "0.0.2-rc.1"
+version = "0.0.2-rc.2"
 dependencies = [
  "async-openai",
  "base64 0.22.1",
