@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag to publish, for example v0.1.0"
+        description: "Existing release tag to publish, for example v0.0.2-rc.1"
         required: true
         type: string
 
@@ -23,6 +23,7 @@ jobs:
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
       release_tag: ${{ steps.release.outputs.release_tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
 
     steps:
       - name: Create or reuse draft release
@@ -31,7 +32,9 @@ jobs:
         with:
           script: |
             const tag = process.env.RELEASE_TAG;
+            const prerelease = tag.includes("-");
             core.setOutput("release_tag", tag);
+            core.setOutput("prerelease", String(prerelease));
             await github.rest.git.getRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -66,9 +69,11 @@ jobs:
                 repo: context.repo.repo,
                 release_id: existing.id,
                 name: tag,
-                body: "See the assets below to download and install aiooiv.",
+                body: prerelease
+                  ? "This is a prerelease build of aiooiv for testing. See the assets below to download it."
+                  : "See the assets below to download and install aiooiv.",
                 draft: true,
-                prerelease: false,
+                prerelease,
               });
               core.setOutput("release_id", existing.id);
               return;
@@ -79,9 +84,11 @@ jobs:
               repo: context.repo.repo,
               tag_name: tag,
               name: tag,
-              body: "See the assets below to download and install aiooiv.",
+              body: prerelease
+                ? "This is a prerelease build of aiooiv for testing. See the assets below to download it."
+                : "See the assets below to download and install aiooiv.",
               draft: true,
-              prerelease: false,
+              prerelease,
             });
             core.setOutput("release_id", release.id);
 
@@ -149,6 +156,49 @@ jobs:
           tauriScript: bun run tauri
           args: ${{ matrix.args }}
 
+      - name: Package Windows portable zip
+        if: matrix.label == 'windows-x64'
+        shell: pwsh
+        run: |
+          $releaseDir = "src-tauri/target/release"
+          $portableDir = "artifacts/aiooiv-portable"
+          $zipPath = "artifacts/aiooiv-${env:RELEASE_TAG}-windows-x64-portable.zip"
+
+          New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
+
+          $exePath = Join-Path $releaseDir "aiooiv.exe"
+          if (!(Test-Path $exePath)) {
+            throw "Portable executable not found: $exePath"
+          }
+          Copy-Item $exePath (Join-Path $portableDir "aiooiv.exe") -Force
+
+          $webViewLoaderPath = Join-Path $releaseDir "WebView2Loader.dll"
+          if (!(Test-Path $webViewLoaderPath)) {
+            throw "WebView2Loader.dll not found next to the release executable. The portable zip would not be reliable without it."
+          }
+          Copy-Item $webViewLoaderPath (Join-Path $portableDir "WebView2Loader.dll") -Force
+
+          @"
+          aiooiv 绿色免安装版
+
+          使用方法：解压后直接运行 aiooiv.exe。
+          说明：本版本无需安装 aiooiv；Windows 仍需要可用的 Microsoft Edge WebView2 Runtime。
+          "@ | Set-Content -Path (Join-Path $portableDir "README-portable.txt") -Encoding UTF8
+
+          New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
+          if (Test-Path $zipPath) {
+            Remove-Item $zipPath -Force
+          }
+          Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $zipPath
+          Write-Host "Created portable zip: $zipPath"
+
+      - name: Upload Windows portable zip
+        if: matrix.label == 'windows-x64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: gh release upload $env:RELEASE_TAG "artifacts/aiooiv-${env:RELEASE_TAG}-windows-x64-portable.zip" --clobber
+
   publish-release:
     name: Publish GitHub release
     needs:
@@ -161,10 +211,11 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const prerelease = "${{ needs.create-release.outputs.prerelease }}" === "true";
             await github.rest.repos.updateRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               release_id: Number("${{ needs.create-release.outputs.release_id }}"),
               draft: false,
-              prerelease: false,
+              prerelease,
             });
