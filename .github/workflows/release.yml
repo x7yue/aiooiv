@@ -175,11 +175,13 @@ jobs:
           }
           Copy-Item $exePath (Join-Path $portableDir "aiooiv.exe") -Force
 
-          $webViewLoaderPath = Join-Path $releaseDir "WebView2Loader.dll"
-          if (!(Test-Path $webViewLoaderPath)) {
-            throw "WebView2Loader.dll not found next to the release executable. The portable zip would not be reliable without it."
+          $webViewLoader = Get-ChildItem "src-tauri/target" -Recurse -Filter "WebView2Loader.dll" -File | Select-Object -First 1
+          if ($webViewLoader) {
+            Copy-Item $webViewLoader.FullName (Join-Path $portableDir "WebView2Loader.dll") -Force
+            Write-Host "Included WebView2Loader.dll from: $($webViewLoader.FullName)"
+          } else {
+            Write-Warning "WebView2Loader.dll was not found in the Tauri target directory; packaging aiooiv.exe only. Windows still needs Microsoft Edge WebView2 Runtime installed."
           }
-          Copy-Item $webViewLoaderPath (Join-Path $portableDir "WebView2Loader.dll") -Force
 
           @"
           aiooiv 绿色免安装版
