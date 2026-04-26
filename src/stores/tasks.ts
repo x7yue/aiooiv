@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import * as cmd from '../lib/commands';
-import type { Task, TaskUpdatePayload } from '../lib/commands';
+import type { SourceImageInput, Task, TaskUpdatePayload } from '../lib/commands';
 
 const TASK_STATUSES = ['pending', 'running', 'completed', 'failed'] as const;
 
@@ -13,8 +13,7 @@ interface TasksState {
     prompt: string,
     taskType: 'generate' | 'edit',
     params: cmd.TaskParams,
-    sourceImageBase64?: string,
-    sourceImageMimeType?: string,
+    sourceImages?: SourceImageInput[],
   ) => Promise<string>;
   cancelTask: (taskId: string) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
@@ -31,9 +30,9 @@ export const useTasksStore = create<TasksState>((set, get) => ({
     set({ tasks, loading: false });
   },
 
-  createTask: async (prompt, taskType, params, sourceImageBase64, sourceImageMimeType) => {
+  createTask: async (prompt, taskType, params, sourceImages) => {
     const paramsJson = JSON.stringify(params);
-    const taskId = await cmd.createTask(prompt, taskType, paramsJson, sourceImageBase64, sourceImageMimeType);
+    const taskId = await cmd.createTask(prompt, taskType, paramsJson, sourceImages);
     await get().loadTasks();
     return taskId;
   },

@@ -9,6 +9,7 @@ export interface Task {
   status: 'pending' | 'running' | 'completed' | 'failed';
   params_json: string;
   source_image_path: string | null;
+  source_image_paths: string | null;
   result_paths: string | null;
   error: string | null;
   created_at: number;
@@ -34,6 +35,14 @@ export interface TaskParams {
   n: number;
 }
 
+export interface SourceImageInput {
+  sourceType: 'upload' | 'stored';
+  base64?: string;
+  mimeType?: string;
+  path?: string;
+  name?: string;
+}
+
 // ── Tauri Command Wrappers ─────────────────────────
 
 export async function getSettings(): Promise<Settings> {
@@ -48,15 +57,15 @@ export async function createTask(
   prompt: string,
   task_type: 'generate' | 'edit',
   params_json: string,
-  source_image_base64?: string,
-  source_image_mime_type?: string,
+  source_images?: SourceImageInput[],
 ): Promise<string> {
   return invoke<string>('create_task', {
     prompt,
     taskType: task_type,
     paramsJson: params_json,
-    sourceImageBase64: source_image_base64 ?? null,
-    sourceImageMimeType: source_image_mime_type ?? null,
+    sourceImagesJson: source_images && source_images.length > 0 ? JSON.stringify(source_images) : null,
+    sourceImageBase64: null,
+    sourceImageMimeType: null,
   });
 }
 

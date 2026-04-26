@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
+import { useCreationDraftStore, createReferenceId, MAX_REFERENCE_IMAGES, type DraftReferenceImage, type TaskMode } from '../stores/creationDraft';
 import { useTasksStore } from '../stores/tasks';
+import type { SourceImageInput } from '../lib/commands';
 
-type TaskMode = 'generate' | 'edit';
 type FormErrors = Partial<Record<'prompt' | 'sourceImage' | 'submit', string>>;
 
 const SIZES = ['1024x1024', '1024x1536', '1536x1024', 'auto'] as const;
@@ -23,22 +24,29 @@ const QUALITY_LABELS: Record<(typeof QUALITIES)[number], string> = {
   high: '高',
 };
 
+const SOURCE_LABELS: Record<DraftReferenceImage['source'], string> = {
+  upload: '上传',
+  generated: '历史',
+  snapshot: '快照',
+};
+
 export function TaskForm() {
   const createTask = useTasksStore((s) => s.createTask);
+  const mode = useCreationDraftStore((s) => s.mode);
+  const setMode = useCreationDraftStore((s) => s.setMode);
+  const referenceImages = useCreationDraftStore((s) => s.referenceImages);
+  const addReferenceImages = useCreationDraftStore((s) => s.addReferenceImages);
+  const removeReferenceImage = useCreationDraftStore((s) => s.removeReferenceImage);
+  const clearReferenceImages = useCreationDraftStore((s) => s.clearReferenceImages);
 
-  const [mode, setMode] = useState<TaskMode>('generate');
   const [prompt, setPrompt] = useState('');
   const [size, setSize] = useState<string>('1024x1024');
   const [quality, setQuality] = useState<string>('medium');
   const [n, setN] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
-
-  const [imageBase64, setImageBase64] = useState<string | null>(null);
-  const [imageMimeType, setImageMimeType] = useState<string | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [imageName, setImageName] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
 
@@ -50,15 +58,6 @@ export function TaskForm() {
       return next;
     });
   };
-
-  const clearImage = useCallback(() => {
-    setImageBase64(null);
-    setImageMimeType(null);
-    setImagePreview(null);
-    setImageName(null);
-    clearError('sourceImage');
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }, []);
 
   const validateFile = (file: File): string | null => {
     if (!SUPPORTED_IMAGE_TYPES.includes(file.type as (typeof SUPPORTED_IMAGE_TYPES)[number])) {
@@ -72,50 +71,66 @@ export function TaskForm() {
     return null;
   };
 
-  const handleFile = useCallback((file: File) => {
-    const fileError = validateFile(file);
-    if (fileError) {
-      setErrors((current) => ({ ...current, sourceImage: fileError }));
-      return;
-    }
+  const handleFiles = useCallback(
+    async (fileList: FileList | File[]) => {
+      const files = Array.from(fileList);
+      if (files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result !== 'string') {
-        setErrors((current) => ({ ...current, sourceImage: '无法读取这张图片，请换一张重试。' }));
+      const remainingSlots = MAX_REFERENCE_IMAGES - referenceImages.length;
+      if (remainingSlots <= 0) {
+        setErrors((current) => ({ ...current, sourceImage: `最多只能选择 ${MAX_REFERENCE_IMAGES} 张参考图。` }));
+        if (fileInputRef.current) fileInputRef.current.value = '';
         return;
       }
 
-      const [, base64] = reader.result.split(',');
-      if (!base64) {
-        setErrors((current) => ({ ...current, sourceImage: '无法准备这张图片用于编辑。' }));
-        return;
+      const selectedFiles = files.slice(0, remainingSlots);
+      const rejectedMessages: string[] = [];
+      const nextImages: DraftReferenceImage[] = [];
+
+      for (const file of selectedFiles) {
+        const fileError = validateFile(file);
+        if (fileError) {
+          rejectedMessages.push(`${file.name}: ${fileError}`);
+          continue;
+        }
+
+        try {
+          nextImages.push(await fileToReferenceImage(file));
+        } catch {
+          rejectedMessages.push(`${file.name}: 无法读取这张图片，请换一张重试。`);
+        }
       }
 
-      setImagePreview(reader.result);
-      setImageBase64(base64);
-      setImageMimeType(file.type);
-      setImageName(file.name);
+      if (files.length > remainingSlots) {
+        rejectedMessages.push(`已达到上限，只加入前 ${remainingSlots} 张图片。`);
+      }
+
+      if (nextImages.length > 0) {
+        addReferenceImages(nextImages);
+      }
+
       setErrors((current) => {
         const next = { ...current };
-        delete next.sourceImage;
+        if (rejectedMessages.length > 0) {
+          next.sourceImage = rejectedMessages[0];
+        } else {
+          delete next.sourceImage;
+        }
         return next;
       });
-    };
-    reader.onerror = () => {
-      setErrors((current) => ({ ...current, sourceImage: '无法读取这张图片，请换一张重试。' }));
-    };
-    reader.readAsDataURL(file);
-  }, []);
+
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    },
+    [addReferenceImages, referenceImages.length],
+  );
 
   const handleDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
       setDragOver(false);
-      const file = event.dataTransfer.files[0];
-      if (file) handleFile(file);
+      void handleFiles(event.dataTransfer.files);
     },
-    [handleFile],
+    [handleFiles],
   );
 
   const handleDragOver = useCallback((event: React.DragEvent) => {
@@ -129,10 +144,9 @@ export function TaskForm() {
 
   const handleFileSelect = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (file) handleFile(file);
+      if (event.target.files) void handleFiles(event.target.files);
     },
-    [handleFile],
+    [handleFiles],
   );
 
   const validateForm = (): boolean => {
@@ -142,8 +156,8 @@ export function TaskForm() {
       nextErrors.prompt = '请先描述你想生成的图像。';
     }
 
-    if (mode === 'edit' && !imageBase64) {
-      nextErrors.sourceImage = '创建图生图任务前，请先添加源图片。';
+    if (mode === 'edit' && referenceImages.length === 0) {
+      nextErrors.sourceImage = '创建图生图任务前，请先添加至少一张参考图片。';
     }
 
     setErrors(nextErrors);
@@ -163,16 +177,20 @@ export function TaskForm() {
     });
 
     try {
+      const sourceImages = mode === 'edit' ? toSourceImageInputs(referenceImages) : undefined;
+      if (mode === 'edit' && (!sourceImages || sourceImages.length === 0)) {
+        throw new Error('参考图片数据不完整，请移除后重新添加。');
+      }
+
       await createTask(
         prompt.trim(),
         mode,
         { size, quality, n },
-        mode === 'edit' ? imageBase64 ?? undefined : undefined,
-        mode === 'edit' ? imageMimeType ?? undefined : undefined,
+        sourceImages,
       );
       setPrompt('');
       setErrors({});
-      if (mode === 'edit') clearImage();
+      if (mode === 'edit') clearReferenceImages();
     } catch (error) {
       const message = error instanceof Error ? error.message : '无法创建任务，请检查设置后重试。';
       setErrors((current) => ({ ...current, submit: message }));
@@ -200,6 +218,7 @@ export function TaskForm() {
   };
 
   const promptLength = prompt.trim().length;
+  const referenceCount = referenceImages.length;
 
   return (
     <form onSubmit={handleSubmit} className={`task-form-grid ${mode === 'edit' ? 'is-edit' : 'is-generate'}`} noValidate>
@@ -228,33 +247,36 @@ export function TaskForm() {
         <div className="task-form-source">
           <div className="field-row-label">
             <label id="source-image-label" className="field-label">
-              源图片
+              参考图片
             </label>
-              <span className="field-hint">PNG / JPG / WebP · 最大 12 MB</span>
+            <span className="field-hint">{referenceCount}/{MAX_REFERENCE_IMAGES} · PNG / JPG / WebP · 单张 12 MB</span>
           </div>
-          {imagePreview ? (
-            <div className="source-image-preview">
-              <img
-                src={imagePreview}
-                alt="用于图生图编辑的源图片"
-                width={328}
-                height={160}
-                className="w-full h-40 object-cover rounded-lg border border-[var(--c-border)]"
-              />
-              <div className="source-image-meta">
-                <span title={imageName ?? undefined}>{imageName ?? '源图片已就绪'}</span>
-                <button type="button" onClick={clearImage} aria-label="移除源图片">
-                  <CloseIcon size={14} />
-                </button>
+
+          <div className="reference-dock" aria-live="polite">
+            {referenceImages.length > 0 && (
+              <div className="reference-strip" aria-label="已选择的参考图片">
+                {referenceImages.map((image, index) => (
+                  <article key={image.id} className="reference-thumb-card">
+                    <img src={image.previewUrl} alt={`参考图片 ${index + 1}: ${image.name}`} width={132} height={96} loading="lazy" />
+                    <span className="reference-index">{index + 1}</span>
+                    <span className={`reference-source reference-source-${image.source}`}>{SOURCE_LABELS[image.source]}</span>
+                    <div className="reference-thumb-meta">
+                      <span title={image.name}>{image.name}</span>
+                      <button type="button" onClick={() => removeReferenceImage(image.id)} aria-label={`移除参考图片 ${image.name}`}>
+                        <CloseIcon size={13} />
+                      </button>
+                    </div>
+                  </article>
+                ))}
               </div>
-            </div>
-          ) : (
+            )}
+
             <div
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onClick={() => fileInputRef.current?.click()}
-              className={`upload-zone ${dragOver ? 'drag-over' : ''} ${errors.sourceImage ? 'field-invalid' : ''}`}
+              className={`upload-zone reference-upload-zone ${dragOver ? 'drag-over' : ''} ${errors.sourceImage ? 'field-invalid' : ''}`}
               role="button"
               tabIndex={0}
               aria-labelledby="source-image-label"
@@ -267,23 +289,25 @@ export function TaskForm() {
                 }
               }}
             >
-              <UploadIcon />
+              <ReferenceIcon />
               <span className="text-sm text-[var(--c-text-muted)]">
-                拖入图片，或点击选择文件
+                拖入一组参考图，或点击继续添加
               </span>
               <span id="source-image-help" className="text-[11px] text-[var(--c-text-muted)] opacity-80">
-                使用清晰的源图片可以获得更好的编辑效果。
+                可混合使用本地图片和画廊中的生成结果。
               </span>
             </div>
-          )}
+          </div>
+
           <input
             ref={fileInputRef}
             name="sourceImage"
             type="file"
             accept={SUPPORTED_IMAGE_TYPES.join(',')}
+            multiple
             onChange={handleFileSelect}
             className="hidden"
-            aria-label="上传源图片"
+            aria-label="上传参考图片"
           />
           {errors.sourceImage && (
             <p id="source-image-error" className="field-error" role="alert">
@@ -309,7 +333,7 @@ export function TaskForm() {
             clearError('prompt');
           }}
           onKeyDown={handlePromptKeyDown}
-          placeholder={mode === 'generate' ? '描述你想生成的图像…' : '描述你想对图片做出的修改…'}
+          placeholder={mode === 'generate' ? '描述你想生成的图像…' : '描述如何综合这些参考图片…'}
           spellCheck={true}
           rows={4}
           className={`field-input prompt-input ${errors.prompt ? 'field-invalid' : ''}`}
@@ -317,7 +341,7 @@ export function TaskForm() {
           aria-describedby={errors.prompt ? 'task-prompt-help task-prompt-error' : 'task-prompt-help'}
         />
         <div id="task-prompt-help" className="prompt-meta-row">
-          <span>建议写清主体、风格、光线和构图。</span>
+          <span>建议写清主体、风格、光线、构图，以及每张参考图的作用。</span>
           <span>{promptLength} 字</span>
         </div>
         {errors.prompt && (
@@ -382,12 +406,67 @@ export function TaskForm() {
         ) : (
           <span className="flex items-center justify-center gap-2">
             <EditIcon />
-            编辑图片
+            编辑 {referenceCount} 张参考图
           </span>
         )}
       </button>
     </form>
   );
+}
+
+async function fileToReferenceImage(file: File): Promise<DraftReferenceImage> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const [, base64] = dataUrl.split(',');
+  if (!base64) {
+    throw new Error('Missing base64 data');
+  }
+
+  return {
+    id: createReferenceId('upload'),
+    source: 'upload',
+    previewUrl: dataUrl,
+    name: file.name,
+    mimeType: file.type,
+    base64,
+  };
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Unexpected FileReader result'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Unable to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function toSourceImageInputs(referenceImages: DraftReferenceImage[]): SourceImageInput[] {
+  return referenceImages.flatMap((image): SourceImageInput[] => {
+    if (image.base64) {
+      return [{
+        sourceType: 'upload',
+        base64: image.base64,
+        mimeType: image.mimeType,
+        name: image.name,
+      }];
+    }
+
+    if (image.path) {
+      return [{
+        sourceType: 'stored',
+        path: image.path,
+        name: image.name,
+      }];
+    }
+
+    return [];
+  });
 }
 
 function GenerateIcon() {
@@ -407,12 +486,15 @@ function EditIcon() {
   );
 }
 
-function UploadIcon() {
+function ReferenceIcon() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--c-text-muted)]" aria-hidden="true">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
+      <rect x="3" y="3" width="18" height="14" rx="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="M21 14l-4.5-4.5L9 17" />
+      <path d="M12 21h.01" />
+      <path d="M17 21h.01" />
+      <path d="M7 21h.01" />
     </svg>
   );
 }
