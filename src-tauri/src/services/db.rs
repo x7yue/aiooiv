@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL,
     params_json TEXT NOT NULL,
     source_image_path TEXT,
+    source_image_paths TEXT,
     result_paths TEXT,
     error TEXT,
     created_at INTEGER NOT NULL,
@@ -30,6 +31,7 @@ pub struct Task {
     pub status: String,
     pub params_json: String,
     pub source_image_path: Option<String>,
+    pub source_image_paths: Option<String>,
     pub result_paths: Option<String>,
     pub error: Option<String>,
     pub created_at: i64,
@@ -46,9 +48,29 @@ pub fn init_db(app: &tauri::AppHandle) -> AppResult<Connection> {
     let db_path = app_data_dir.join("app.sqlite");
     let conn = Connection::open(db_path)?;
     conn.execute_batch(TASKS_SCHEMA)?;
+    ensure_task_columns(&conn)?;
     recover_interrupted_tasks(&conn)?;
 
     Ok(conn)
+}
+
+fn ensure_task_columns(conn: &Connection) -> AppResult<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(tasks)")?;
+    let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let mut has_source_image_paths = false;
+
+    for column in columns {
+        if column? == "source_image_paths" {
+            has_source_image_paths = true;
+            break;
+        }
+    }
+
+    if !has_source_image_paths {
+        conn.execute("ALTER TABLE tasks ADD COLUMN source_image_paths TEXT", [])?;
+    }
+
+    Ok(())
 }
 
 fn recover_interrupted_tasks(conn: &Connection) -> AppResult<()> {
@@ -76,8 +98,8 @@ pub fn insert_task(conn: &Connection, task: &Task) -> AppResult<()> {
         r#"
         INSERT INTO tasks (
             id, task_type, prompt, status, params_json,
-            source_image_path, result_paths, error, created_at, completed_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            source_image_path, source_image_paths, result_paths, error, created_at, completed_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
         "#,
         params![
             task.id,
@@ -86,6 +108,7 @@ pub fn insert_task(conn: &Connection, task: &Task) -> AppResult<()> {
             task.status,
             task.params_json,
             task.source_image_path,
+            task.source_image_paths,
             task.result_paths,
             task.error,
             task.created_at,
@@ -120,7 +143,7 @@ pub fn get_task(conn: &Connection, task_id: &str) -> AppResult<Option<Task>> {
         .query_row(
             r#"
             SELECT id, task_type, prompt, status, params_json,
-                   source_image_path, result_paths, error, created_at, completed_at
+                   source_image_path, source_image_paths, result_paths, error, created_at, completed_at
             FROM tasks
             WHERE id = ?1
             "#,
@@ -134,12 +157,12 @@ pub fn get_task(conn: &Connection, task_id: &str) -> AppResult<Option<Task>> {
 
 pub fn list_tasks(conn: &Connection) -> AppResult<Vec<Task>> {
     let mut stmt = conn.prepare(
-        r#"
-        SELECT id, task_type, prompt, status, params_json,
-               source_image_path, result_paths, error, created_at, completed_at
-        FROM tasks
-        ORDER BY created_at DESC
-        "#,
+            r#"
+            SELECT id, task_type, prompt, status, params_json,
+                   source_image_path, source_image_paths, result_paths, error, created_at, completed_at
+            FROM tasks
+            ORDER BY created_at DESC
+            "#,
     )?;
 
     let rows = stmt.query_map([], row_to_task)?;
@@ -164,9 +187,10 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         status: row.get(3)?,
         params_json: row.get(4)?,
         source_image_path: row.get(5)?,
-        result_paths: row.get(6)?,
-        error: row.get(7)?,
-        created_at: row.get(8)?,
-        completed_at: row.get(9)?,
+        source_image_paths: row.get(6)?,
+        result_paths: row.get(7)?,
+        error: row.get(8)?,
+        created_at: row.get(9)?,
+        completed_at: row.get(10)?,
     })
 }
