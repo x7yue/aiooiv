@@ -11,6 +11,12 @@ use futures::StreamExt;
 
 use crate::{AppError, AppResult};
 
+#[derive(Debug, Clone)]
+pub struct ImageInput {
+    pub base64: String,
+    pub mime_type: String,
+}
+
 /// Generate image via async-openai Responses streaming API.
 pub async fn generate_image(
     base_url: &str,
@@ -42,27 +48,36 @@ pub async fn generate_image(
 pub async fn edit_image(
     base_url: &str,
     api_key: &str,
-    source_image_base64: &str,
-    source_image_mime_type: &str,
+    source_images: &[ImageInput],
     prompt: &str,
     size: &str,
     quality: &str,
     n: u8,
 ) -> AppResult<Vec<String>> {
+    if source_images.is_empty() {
+        return Err(AppError::message(
+            "at least one source image is required for edit tasks".to_owned(),
+        ));
+    }
+
+    let mut content = Vec::with_capacity(source_images.len() + 1);
+    for source_image in source_images {
+        content.push(InputContent::InputImage(InputImageContent {
+            detail: ImageDetail::Auto,
+            file_id: None,
+            image_url: Some(format!(
+                "data:{};base64,{}",
+                source_image.mime_type, source_image.base64
+            )),
+        }));
+    }
+    content.push(InputContent::InputText(InputTextContent {
+        text: prompt.to_owned(),
+    }));
+
     let message = EasyInputMessage {
         role: async_openai::types::responses::Role::User,
-        content: EasyInputContent::ContentList(vec![
-            InputContent::InputImage(InputImageContent {
-                detail: ImageDetail::Auto,
-                file_id: None,
-                image_url: Some(format!(
-                    "data:{source_image_mime_type};base64,{source_image_base64}"
-                )),
-            }),
-            InputContent::InputText(InputTextContent {
-                text: prompt.to_owned(),
-            }),
-        ]),
+        content: EasyInputContent::ContentList(content),
         ..Default::default()
     };
 
@@ -78,10 +93,11 @@ pub async fn edit_image(
     )?;
 
     log::info!(
-        "[openai] sending edit create_stream request: size={}, quality={}, n={}",
+        "[openai] sending edit create_stream request: size={}, quality={}, n={}, source_images={}",
         size,
         quality,
-        n
+        n,
+        source_images.len()
     );
     collect_stream_images(base_url, api_key, request, n).await
 }
