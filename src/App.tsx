@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useSettingsStore } from './stores/settings';
 import { useTasksStore } from './stores/tasks';
+import { useCreationDraftStore } from './stores/creationDraft';
 import { AiooivLogo } from './components/AiooivLogo';
 import { SettingsDialog } from './components/SettingsDialog';
 import { TaskForm } from './components/TaskForm';
@@ -122,6 +123,11 @@ export default App;
 
 function CreationPanel() {
   const [collapsed, setCollapsed] = useState(false);
+  const referenceCount = useCreationDraftStore((s) => s.referenceImages.length);
+
+  useEffect(() => {
+    if (referenceCount > 0) setCollapsed(false);
+  }, [referenceCount]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {

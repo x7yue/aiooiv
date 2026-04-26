@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { useCreationDraftStore, createReferenceId, type DraftReferenceImage } from '../stores/creationDraft';
 import { useTasksStore } from '../stores/tasks';
-import type { Task, TaskParams } from '../lib/commands';
+import type { SourceImageInput, Task, TaskParams } from '../lib/commands';
 import { ImagePreview } from './ImagePreview';
 import { TaskCard } from './tasks/TaskCard';
 
@@ -38,6 +39,7 @@ export function TaskList({ searchTerm }: TaskListProps) {
   const deleteTask = useTasksStore((s) => s.deleteTask);
   const cancelTask = useTasksStore((s) => s.cancelTask);
   const createTask = useTasksStore((s) => s.createTask);
+  const addReferenceImages = useCreationDraftStore((s) => s.addReferenceImages);
 
   const [previewTask, setPreviewTask] = useState<Task | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -109,7 +111,8 @@ export function TaskList({ searchTerm }: TaskListProps) {
 
     setRetryingId(task.id);
     try {
-      await createTask(task.prompt, task.task_type, params);
+      const sourceImages = task.task_type === 'edit' ? getStoredSourceInputs(task) : undefined;
+      await createTask(task.prompt, task.task_type, params, sourceImages);
       setActiveFilter('all');
       setTaskActionMessage(task.id, '已创建新的重试任务');
     } catch (error) {
@@ -117,6 +120,27 @@ export function TaskList({ searchTerm }: TaskListProps) {
     } finally {
       setRetryingId(null);
     }
+  };
+
+  const handleUseGalleryItemAsReference = (item: GalleryItem) => {
+    addReferenceImages([buildGeneratedReference(item.task, item.path, item.index)]);
+    setTaskActionMessage(item.task.id, `已加入第 ${item.index + 1} 张图作为参考`);
+  };
+
+  const handleUseTaskAsReference = (task: Task) => {
+    const [firstPath] = getResultPaths(task);
+    if (!firstPath) {
+      setTaskActionMessage(task.id, '这个任务没有可用的生成图片');
+      return;
+    }
+
+    addReferenceImages([buildGeneratedReference(task, firstPath, 0)]);
+    setTaskActionMessage(task.id, '已加入首张生成图作为参考');
+  };
+
+  const handleUsePreviewImageAsReference = (task: Task, path: string, index: number) => {
+    addReferenceImages([buildGeneratedReference(task, path, index)]);
+    setTaskActionMessage(task.id, `已加入预览中的第 ${index + 1} 张图作为参考`);
   };
 
   const handleCopyError = async (task: Task) => {
@@ -237,20 +261,33 @@ export function TaskList({ searchTerm }: TaskListProps) {
         ) : (
           <div className="gallery-grid" aria-label="生成图片画廊">
             {galleryItems.map((item) => (
-              <button
+              <article
                 key={`${item.task.id}-${item.index}`}
-                type="button"
                 className="gallery-item"
-                onClick={() => setPreviewTask(item.task)}
-                aria-label={`打开第 ${item.index + 1} 张生成图片，提示词：${item.task.prompt}`}
               >
-                <img src={item.src} alt={`生成图片 ${item.index + 1}`} width={160} height={160} loading="lazy" />
-                <span className="gallery-item-meta">
-                  <span>{item.task.task_type === 'generate' ? '文生图' : '图生图'}</span>
-                  <span>{formatShortDate(item.task.created_at)}</span>
-                </span>
-                <span className="gallery-item-prompt" title={item.task.prompt}>{item.task.prompt}</span>
-              </button>
+                <button
+                  type="button"
+                  className="gallery-item-main"
+                  onClick={() => setPreviewTask(item.task)}
+                  aria-label={`打开第 ${item.index + 1} 张生成图片，提示词：${item.task.prompt}`}
+                >
+                  <img src={item.src} alt={`生成图片 ${item.index + 1}`} width={160} height={160} loading="lazy" />
+                  <span className="gallery-item-meta">
+                    <span>{item.task.task_type === 'generate' ? '文生图' : '图生图'}</span>
+                    <span>{formatShortDate(item.task.created_at)}</span>
+                  </span>
+                  <span className="gallery-item-prompt" title={item.task.prompt}>{item.task.prompt}</span>
+                </button>
+                <button
+                  type="button"
+                  className="gallery-reference-btn"
+                  onClick={() => handleUseGalleryItemAsReference(item)}
+                  aria-label={`将第 ${item.index + 1} 张生成图片用作图生图参考`}
+                >
+                  <ReferenceIcon />
+                  用作参考
+                </button>
+              </article>
             ))}
           </div>
         )
@@ -266,6 +303,7 @@ export function TaskList({ searchTerm }: TaskListProps) {
               onConfirmDelete={() => handleConfirmDelete(task.id)}
               onCancelDelete={() => setConfirmDeleteId(null)}
               onRetry={() => void handleRetryTask(task)}
+              onUseAsReference={() => handleUseTaskAsReference(task)}
               onCopyError={() => void handleCopyError(task)}
               retryDisabledReason={getRetryDisabledReason(task)}
               retrying={retryingId === task.id}
@@ -280,6 +318,10 @@ export function TaskList({ searchTerm }: TaskListProps) {
       {previewTask && (
         <ImagePreview
           task={previewTask}
+          onUseAsReference={(path, index) => {
+            handleUsePreviewImageAsReference(previewTask, path, index);
+            setPreviewTask(null);
+          }}
           onClose={() => setPreviewTask(null)}
         />
       )}
@@ -314,14 +356,49 @@ function isTaskParams(value: unknown): value is TaskParams {
 
 function getRetryDisabledReason(task: Task): string | undefined {
   if (task.status !== 'failed') return undefined;
-  if (task.task_type === 'edit') return '图生图重试需要重新选择源图片';
   if (!parseTaskParams(task.params_json)) return '任务参数已损坏，无法重试';
+  if (task.task_type === 'edit' && getStoredSourceInputs(task).length === 0) {
+    return '旧图生图任务缺少源图快照，需要重新选择参考图';
+  }
   return undefined;
+}
+
+function getStoredSourceInputs(task: Task): SourceImageInput[] {
+  const paths = getSourcePaths(task);
+  return paths.map((path, index) => ({
+    sourceType: 'stored',
+    path,
+    name: `源图快照 ${index + 1}`,
+  }));
+}
+
+function getSourcePaths(task: Task): string[] {
+  if (task.source_image_paths) {
+    const paths = parseStringArray(task.source_image_paths);
+    if (paths.length > 0) return paths;
+  }
+
+  return task.source_image_path ? [task.source_image_path] : [];
+}
+
+function getResultPaths(task: Task): string[] {
+  return task.result_paths ? parseStringArray(task.result_paths) : [];
+}
+
+function parseStringArray(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === 'string');
+  } catch {
+    return [];
+  }
 }
 
 interface GalleryItem {
   task: Task;
   src: string;
+  path: string;
   index: number;
 }
 
@@ -329,16 +406,29 @@ function getGalleryItems(task: Task): GalleryItem[] {
   if (task.status !== 'completed' || !task.result_paths) return [];
 
   try {
-    const paths: unknown = JSON.parse(task.result_paths);
-    if (!Array.isArray(paths)) return [];
-
-    return paths.flatMap((path, index) => {
-      if (typeof path !== 'string') return [];
-      return [{ task, src: convertFileSrc(path), index }];
-    });
+    return getResultPaths(task).map((path, index) => ({
+      task,
+      src: convertFileSrc(path),
+      path,
+      index,
+    }));
   } catch {
     return [];
   }
+}
+
+function buildGeneratedReference(task: Task, path: string, index: number): DraftReferenceImage {
+  const taskTypeLabel = task.task_type === 'generate' ? '文生图' : '图生图';
+  return {
+    id: createReferenceId('generated'),
+    source: 'generated',
+    previewUrl: convertFileSrc(path),
+    name: `${taskTypeLabel}结果 ${index + 1}`,
+    mimeType: 'image/png',
+    path,
+    taskId: task.id,
+    index,
+  };
 }
 
 function formatShortDate(unixTimestamp: number): string {
@@ -397,6 +487,17 @@ function EmptyIcon() {
       <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
       <circle cx="8.5" cy="8.5" r="1.5" />
       <polyline points="21 15 16 10 5 21" />
+    </svg>
+  );
+}
+
+function ReferenceIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="14" rx="2" />
+      <path d="M8 21h8" />
+      <path d="M12 17v4" />
+      <path d="M21 14l-4.5-4.5L9 17" />
     </svg>
   );
 }

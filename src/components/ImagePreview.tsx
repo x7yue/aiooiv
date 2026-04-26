@@ -4,10 +4,11 @@ import type { Task } from '../lib/commands';
 
 interface ImagePreviewProps {
   task: Task;
+  onUseAsReference?: (path: string, index: number) => void;
   onClose: () => void;
 }
 
-export function ImagePreview({ task, onClose }: ImagePreviewProps) {
+export function ImagePreview({ task, onUseAsReference, onClose }: ImagePreviewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -134,6 +135,16 @@ export function ImagePreview({ task, onClose }: ImagePreviewProps) {
           {hasMultiple && (
             <span>{currentIndex + 1} / {images.length}</span>
           )}
+          {onUseAsReference && (
+            <button
+              type="button"
+              className="preview-reference-btn"
+              onClick={() => onUseAsReference(current.path, currentIndex)}
+            >
+              <ReferenceIcon />
+              用当前图作参考
+            </button>
+          )}
           <span className="truncate max-w-md" title={task.prompt}>{task.prompt}</span>
         </div>
       </div>
@@ -164,6 +175,17 @@ function ChevronRightIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+}
+
+function ReferenceIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="14" rx="2" />
+      <path d="M8 21h8" />
+      <path d="M12 17v4" />
+      <path d="M21 14l-4.5-4.5L9 17" />
     </svg>
   );
 }
