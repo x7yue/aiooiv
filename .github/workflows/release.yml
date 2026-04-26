@@ -105,13 +105,16 @@ jobs:
           - label: windows-x64
             os: windows-latest
             args: ""
+            prerelease_args: "--bundles nsis"
           - label: macos-arm64
             os: macos-15
             args: "--target aarch64-apple-darwin"
+            prerelease_args: "--target aarch64-apple-darwin"
             rust-targets: "aarch64-apple-darwin"
           - label: macos-x64
             os: macos-15-intel
             args: "--target x86_64-apple-darwin"
+            prerelease_args: "--target x86_64-apple-darwin"
             rust-targets: "x86_64-apple-darwin"
 
     steps:
@@ -144,7 +147,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install WiX Toolset
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.create-release.outputs.prerelease != 'true'
         run: choco install wixtoolset --yes --no-progress
 
       - name: Build and upload release bundles
@@ -154,7 +157,7 @@ jobs:
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           tauriScript: bun run tauri
-          args: ${{ matrix.args }}
+          args: ${{ needs.create-release.outputs.prerelease == 'true' && matrix.prerelease_args || matrix.args }}
 
       - name: Package Windows portable zip
         if: matrix.label == 'windows-x64'
