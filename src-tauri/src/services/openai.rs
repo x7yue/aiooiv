@@ -104,7 +104,7 @@ pub async fn edit_image(
 
 fn build_request(input: InputParam, tools: Vec<Tool>) -> AppResult<CreateResponse> {
     CreateResponseArgs::default()
-        .model("gpt-5.4")
+        .model("gpt-5.5")
         .input(input)
         .tools(tools)
         .build()

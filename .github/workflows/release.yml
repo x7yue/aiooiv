@@ -104,7 +104,7 @@ jobs:
         include:
           - label: windows-x64
             os: windows-latest
-            args: ""
+            args: "--bundles nsis"
             prerelease_args: "--bundles nsis"
           - label: macos-arm64
             os: macos-15
@@ -145,10 +145,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
-
-      - name: Install WiX Toolset
-        if: runner.os == 'Windows' && needs.create-release.outputs.prerelease != 'true'
-        run: choco install wixtoolset --yes --no-progress
 
       - name: Build and upload release bundles
         uses: tauri-apps/tauri-action@v0

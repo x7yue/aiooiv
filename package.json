@@ -1,11 +1,12 @@
 {
   "name": "aiooiv",
   "private": true,
-  "version": "0.0.2-rc.3",
+  "version": "0.0.2-rc.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "check:workflows": "node scripts/check-workflows.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

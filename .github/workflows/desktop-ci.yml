@@ -45,12 +45,8 @@ jobs:
       - name: Compile frontend
         run: bun run build
 
-      - name: Install WiX Toolset
-        if: runner.os == 'Windows'
-        run: choco install wixtoolset --yes --no-progress
-
       - name: Build and package desktop app
-        run: bun run tauri build
+        run: ${{ runner.os == 'Windows' && 'bun run tauri build --bundles nsis' || 'bun run tauri build' }}
 
       - name: Upload desktop bundles
         uses: actions/upload-artifact@v4
